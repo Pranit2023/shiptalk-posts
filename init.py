@@ -1,5 +1,6 @@
 import praw
 import json
+import time
 from datetime import datetime, timezone
 import logging
 from concurrent.futures import ThreadPoolExecutor
@@ -26,7 +27,6 @@ reddit = praw.Reddit(client_id=CLIENT_ID, client_secret=CLIENT_SECRET, user_agen
 reddit._core._requestor._http = session  # Apply the session to Reddit
 
 # Search parameters
-# SUBREDDITS = ["logistics", "shipping", "supplychain", "freight", "transportation"]
 SUBREDDITS = [
     "logistics",
     "shipping",
@@ -84,48 +84,61 @@ def classify_post(title, content):
 # Function to fetch comments for a post
 def fetch_comments(submission, max_comments=10):
     comments = []
-    submission.comments.replace_more(limit=0)  # Expand all "more comments"
-    for comment in submission.comments[:max_comments]:  # Limit number of comments
-        comments.append({
-            "id": comment.id,
-            "author": str(comment.author) if comment.author else None,
-            "body": comment.body,
-            "created_utc": datetime.fromtimestamp(comment.created_utc, timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
-        })
+    try:
+        submission.comments.replace_more(limit=0)  # Expand all "more comments"
+        for comment in submission.comments[:max_comments]:  # Limit number of comments
+            comments.append({
+                "id": comment.id,
+                "author": str(comment.author) if comment.author else None,
+                "body": comment.body,
+                "created_utc": datetime.fromtimestamp(comment.created_utc, timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
+            })
+    except Exception as e:
+        logging.error(f"Error fetching comments for post {submission.id}: {e}")
     return comments
 
 # Function to fetch posts from a single subreddit
-def fetch_subreddit_posts(subreddit, limit_per_subreddit=20, max_comments=10):
+def fetch_subreddit_posts(subreddit, limit_per_subreddit=50, max_comments=10):
     posts = []
     logging.info(f"Fetching posts from subreddit: {subreddit}")
-    for submission in reddit.subreddit(subreddit).new(limit=limit_per_subreddit):
-        post_category = classify_post(submission.title, submission.selftext)
-        if post_category:
-            post_data = {
-                "id": submission.id,
-                "title": submission.title,
-                "content": submission.selftext,
-                "subreddit": subreddit,
-                "type": "question" if submission.is_self else "discussion",
-                "category": post_category,
-                "created_utc": datetime.fromtimestamp(submission.created_utc, timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
-                "url": submission.url,
-                "comments": fetch_comments(submission, max_comments), 
-            }
-            posts.append(post_data)
+    try:
+        for submission in reddit.subreddit(subreddit).new(limit=limit_per_subreddit):
+            post_category = classify_post(submission.title, submission.selftext)
+            if post_category:
+                post_data = {
+                    "id": submission.id,
+                    "title": submission.title,
+                    "content": submission.selftext,
+                    "subreddit": subreddit,
+                    "type": "question" if submission.is_self else "discussion",
+                    "category": post_category,
+                    "created_utc": datetime.fromtimestamp(submission.created_utc, timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
+                    "url": submission.url,
+                    "comments": fetch_comments(submission, max_comments), 
+                }
+                posts.append(post_data)
+    except praw.exceptions.APIException as e:
+        logging.error(f"APIException while fetching posts from {subreddit}: {e}")
+    except requests.exceptions.RequestException as e:
+        logging.error(f"RequestException while fetching posts from {subreddit}: {e}")
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
     logging.info(f"Fetched {len(posts)} posts from {subreddit}")
     return posts
 
 # Main function to scrape posts from all subreddits
 def scrape_all_posts(limit=100, max_comments=10):
     results = []
-    with ThreadPoolExecutor() as executor:
+    with ThreadPoolExecutor(max_workers=5) as executor:  # Limit parallel threads
         futures = [
             executor.submit(fetch_subreddit_posts, subreddit, limit // len(SUBREDDITS), max_comments)
             for subreddit in SUBREDDITS
         ]
         for future in futures:
-            results.extend(future.result())
+            try:
+                results.extend(future.result())
+            except Exception as e:
+                logging.error(f"Error processing future: {e}")
     return results
 
 # Main entry point
