@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timezone
 import logging
 from concurrent.futures import ThreadPoolExecutor
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -89,22 +90,26 @@ def fetch_comments(submission, max_comments=10):
 def fetch_subreddit_posts(subreddit, limit_per_subreddit=20, max_comments=10):
     posts = []
     logging.info(f"Fetching posts from subreddit: {subreddit}")
-    for submission in reddit.subreddit(subreddit).new(limit=limit_per_subreddit):
-        post_category = classify_post(submission.title, submission.selftext)
-        if post_category:
-            post_data = {
-                "id": submission.id,
-                "title": submission.title,
-                "content": submission.selftext,
-                "subreddit": subreddit,
-                "type": "question" if submission.is_self else "discussion",
-                "category": post_category,
-                "created_utc": datetime.fromtimestamp(submission.created_utc, timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
-                "url": submission.url,
-                "comments": fetch_comments(submission, max_comments),  # Include comments
-            }
-            posts.append(post_data)
+    try:
+        for submission in reddit.subreddit(subreddit).new(limit=limit_per_subreddit):
+            post_category = classify_post(submission.title, submission.selftext)
+            if post_category:
+                post_data = {
+                    "id": submission.id,
+                    "title": submission.title,
+                    "content": submission.selftext,
+                    "subreddit": subreddit,
+                    "type": "question" if submission.is_self else "discussion",
+                    "category": post_category,
+                    "created_utc": datetime.fromtimestamp(submission.created_utc, timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
+                    "url": submission.url,
+                    "comments": fetch_comments(submission, max_comments),  # Include comments
+                }
+                posts.append(post_data)
+    except Exception as e:
+        logging.error(f"Error fetching posts from {subreddit}: {e}")  # Log the specific error
     logging.info(f"Fetched {len(posts)} posts from {subreddit}")
+    time.sleep(1)
     return posts
 
 # Main function to scrape posts from all subreddits
