@@ -3,9 +3,6 @@ import json
 from datetime import datetime, timezone
 import logging
 from concurrent.futures import ThreadPoolExecutor
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -15,15 +12,9 @@ CLIENT_ID = 'VMEp44xTVtl0lgUGbjSBcQ'
 CLIENT_SECRET = 'wMRISmcP_vxrtXMLqFFW-Mpr0n0uWg'
 USER_AGENT = 'RedditScraper:v1.0 (by /u/pranit3112)'
 
-# Configure connection pool size and retry logic
-session = requests.Session()
-adapter = HTTPAdapter(pool_connections=100, pool_maxsize=100, max_retries=Retry(total=5, backoff_factor=0.3))
-session.mount("https://", adapter)
-session.mount("http://", adapter)
-
-# Initialize Reddit API client with custom session
-reddit = praw.Reddit(client_id=CLIENT_ID, client_secret=CLIENT_SECRET, user_agent=USER_AGENT)
-reddit._core._requestor._http = session  # Apply the session to Reddit
+# Initialize Reddit API client with increased connection pool size
+reddit = praw.Reddit(client_id=CLIENT_ID, client_secret=CLIENT_SECRET, user_agent=USER_AGENT, 
+                     requestor_kwargs={'pool_size': 20})  # Increase pool size
 
 # Search parameters
 # SUBREDDITS = ["logistics", "shipping", "supplychain", "freight", "transportation"]
@@ -49,6 +40,7 @@ SUBREDDITS = [
     "freightbrokers",
     "logisticstechnology"
 ]
+
 TOPICS_KEYWORDS = {
     "Parcel Shipping": ["parcel shipping", "package shipping", "parcel delivery", "package transit"],
     "Sustainable Packaging": ["eco-friendly packaging", "sustainable packaging", "green packaging"],
@@ -98,21 +90,24 @@ def fetch_comments(submission, max_comments=10):
 def fetch_subreddit_posts(subreddit, limit_per_subreddit=20, max_comments=10):
     posts = []
     logging.info(f"Fetching posts from subreddit: {subreddit}")
-    for submission in reddit.subreddit(subreddit).new(limit=limit_per_subreddit):
-        post_category = classify_post(submission.title, submission.selftext)
-        if post_category:
-            post_data = {
-                "id": submission.id,
-                "title": submission.title,
-                "content": submission.selftext,
-                "subreddit": subreddit,
-                "type": "question" if submission.is_self else "discussion",
-                "category": post_category,
-                "created_utc": datetime.fromtimestamp(submission.created_utc, timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
-                "url": submission.url,
-                "comments": fetch_comments(submission, max_comments), 
-            }
-            posts.append(post_data)
+    try:
+        for submission in reddit.subreddit(subreddit).new(limit=limit_per_subreddit):
+            post_category = classify_post(submission.title, submission.selftext)
+            if post_category:
+                post_data = {
+                    "id": submission.id,
+                    "title": submission.title,
+                    "content": submission.selftext,
+                    "subreddit": subreddit,
+                    "type": "question" if submission.is_self else "discussion",
+                    "category": post_category,
+                    "created_utc": datetime.fromtimestamp(submission.created_utc, timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
+                    "url": submission.url,
+                    "comments": fetch_comments(submission, max_comments),
+                }
+                posts.append(post_data)
+    except Exception as e:
+        logging.error(f"An error occurred while fetching posts from {subreddit}: {e}")
     logging.info(f"Fetched {len(posts)} posts from {subreddit}")
     return posts
 
