@@ -73,8 +73,8 @@ TOPICS_KEYWORDS = {
 
 # Output file for saving results
 OUTPUT_FILE = "large_reddit_posts.json"
-TOTAL_THRESHOLD = 15000  # Maximum number of posts to scrape globally
-PER_SUBREDDIT_LIMIT = 2000  # Maximum posts to scrape per subreddit in each round
+TOTAL_THRESHOLD = 5000  # Maximum number of posts to scrape globally
+PER_SUBREDDIT_LIMIT = 300  # Maximum posts to scrape per subreddit in each round
 
 # Helper function to classify posts based on keywords
 def classify_post(title, content):
